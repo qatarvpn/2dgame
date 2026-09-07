@@ -2,10 +2,10 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>2D Platformer</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
     body {
       background: #111;
       overflow: hidden;
@@ -13,6 +13,7 @@
       justify-content: center;
       align-items: center;
       height: 100vh;
+      font-family: Arial, sans-serif;
     }
     canvas {
       display: block;
@@ -20,10 +21,74 @@
       max-width: 100%;
       max-height: 100%;
     }
+
+    /* أزرار الموبايل */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 20px;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      pointer-events: auto;
+    }
+    .btn {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      border: 3px solid rgba(255, 255, 255, 0.6);
+      color: white;
+      font-size: 28px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      backdrop-filter: blur(4px);
+      -webkit-user-select: none;
+    }
+    .btn:active, .btn.active {
+      background: rgba(255, 255, 255, 0.5);
+      transform: scale(0.92);
+    }
+    .btn-jump {
+      width: 80px;
+      height: 80px;
+      background: rgba(76, 175, 80, 0.4);
+      border-color: rgba(76, 175, 80, 0.8);
+      font-size: 22px;
+    }
+    .btn-slide {
+      width: 65px;
+      height: 65px;
+      background: rgba(33, 150, 243, 0.4);
+      border-color: rgba(33, 150, 243, 0.8);
+      font-size: 18px;
+    }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
+
+  <!-- أزرار التحكم للموبايل -->
+  <div id="controls">
+    <div class="btn-group">
+      <div class="btn" id="btnLeft">◀</div>
+      <div class="btn" id="btnRight">▶</div>
+    </div>
+    <div class="btn-group">
+      <div class="btn btn-slide" id="btnSlide">Slide</div>
+      <div class="btn btn-jump" id="btnJump">Jump</div>
+    </div>
+  </div>
 
   <script>
     const canvas = document.getElementById('game');
@@ -62,7 +127,7 @@
       for (const name in animConfig) {
         images[name] = [];
         const count = animConfig[name].count;
-        const fileNameBase = name.charAt(0).toUpperCase() + name.slice(1); // Idle, Run, Jump...
+        const fileNameBase = name.charAt(0).toUpperCase() + name.slice(1);
 
         for (let i = 1; i <= count; i++) {
           const fileName = fileNameBase + ' (' + i + ').png';
@@ -105,15 +170,40 @@
 
     // ========== التحكم ==========
     const keys = {};
+    const touch = { left: false, right: false, jump: false, slide: false };
+
     window.addEventListener('keydown', e => {
       keys[e.code] = true;
       if (['Space', 'ArrowUp', 'KeyW', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    // لمس للموبايل (أزرار بسيطة)
-    let touchLeft = false, touchRight = false, touchJump = false;
-    
+    // أزرار اللمس
+    function setupButton(id, key) {
+      const btn = document.getElementById(id);
+      const start = (e) => {
+        e.preventDefault();
+        touch[key] = true;
+        btn.classList.add('active');
+      };
+      const end = (e) => {
+        e.preventDefault();
+        touch[key] = false;
+        btn.classList.remove('active');
+      };
+      btn.addEventListener('touchstart', start, { passive: false });
+      btn.addEventListener('touchend', end, { passive: false });
+      btn.addEventListener('touchcancel', end, { passive: false });
+      btn.addEventListener('mousedown', start);
+      btn.addEventListener('mouseup', end);
+      btn.addEventListener('mouseleave', end);
+    }
+
+    setupButton('btnLeft', 'left');
+    setupButton('btnRight', 'right');
+    setupButton('btnJump', 'jump');
+    setupButton('btnSlide', 'slide');
+
     // ========== الكاميرا ==========
     const camera = { x: 0, y: 0 };
 
@@ -136,17 +226,17 @@
 
       // حركة
       player.vx = 0;
-      if (keys['ArrowLeft'] || keys['KeyA'] || touchLeft) {
+      if (keys['ArrowLeft'] || keys['KeyA'] || touch.left) {
         player.vx = -player.speed;
         player.facing = -1;
       }
-      if (keys['ArrowRight'] || keys['KeyD'] || touchRight) {
+      if (keys['ArrowRight'] || keys['KeyD'] || touch.right) {
         player.vx = player.speed;
         player.facing = 1;
       }
 
       // قفز
-      if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || touchJump) && player.onGround) {
+      if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || touch.jump) && player.onGround) {
         player.vy = player.jumpPower;
         player.onGround = false;
         player.state = 'jump';
@@ -154,7 +244,7 @@
       }
 
       // سلايد
-      if ((keys['ArrowDown'] || keys['KeyS']) && player.onGround && Math.abs(player.vx) > 0) {
+      if ((keys['ArrowDown'] || keys['KeyS'] || touch.slide) && player.onGround && Math.abs(player.vx) > 0) {
         player.state = 'slide';
         player.slideTimer = 0.45;
       }
@@ -266,13 +356,6 @@
         ctx.drawImage(frameImg, drawX, drawY, player.width, player.height);
       }
       ctx.restore();
-
-      // تعليمات
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(10, 10, 460, 36);
-      ctx.fillStyle = '#fff';
-      ctx.font = '15px Arial';
-      ctx.fillText('← → / A D : حركة   |   Space / W : قفز   |   ↓ / S : سلايد', 20, 33);
     }
 
     let lastTime = 0;
