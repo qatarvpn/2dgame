@@ -2,6 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>2D Platformer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -28,7 +29,6 @@
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
-    // حجم الشاشة
     function resize() {
       canvas.width = Math.min(window.innerWidth, 1280);
       canvas.height = Math.min(window.innerHeight, 720);
@@ -56,15 +56,17 @@
     }
 
     async function loadAll() {
-      // خلفية وبلاتفورم
       images.bg = await loadImage('BG.png');
       images.platform = await loadImage('pl.png');
 
-      // فريمات الشخصية
-      for (const [name, conf] of Object.entries(animConfig)) {
+      for (const name in animConfig) {
         images[name] = [];
-        for (let i = 1; i <= conf.count; i++) {
-          const img = await loadImage(`\( {name.charAt(0).toUpperCase() + name.slice(1)} ( \){i}).png`);
+        const count = animConfig[name].count;
+        const fileNameBase = name.charAt(0).toUpperCase() + name.slice(1); // Idle, Run, Jump...
+
+        for (let i = 1; i <= count; i++) {
+          const fileName = fileNameBase + ' (' + i + ').png';
+          const img = await loadImage(fileName);
           images[name].push(img);
         }
       }
@@ -78,42 +80,43 @@
       vy: 0,
       width: 60,
       height: 80,
-      speed: 5,
-      jumpPower: -14,
+      speed: 5.5,
+      jumpPower: -15,
       onGround: false,
-      state: 'idle',      // idle | run | jump | fall | slide | dead
+      state: 'idle',
       frame: 0,
       frameTimer: 0,
-      facing: 1,         // 1 يمين | -1 يسار
+      facing: 1,
       dead: false,
       slideTimer: 0
     };
 
     // ========== المنصات ==========
     const platforms = [
-      // الأرض الرئيسية
-      { x: 0, y: 620, w: 2000, h: 100 },
-      // منصات عائمة
+      { x: 0, y: 620, w: 2200, h: 120 },
       { x: 300, y: 480, w: 180, h: 40 },
       { x: 550, y: 380, w: 160, h: 40 },
       { x: 800, y: 480, w: 200, h: 40 },
       { x: 1100, y: 350, w: 150, h: 40 },
       { x: 1350, y: 480, w: 220, h: 40 },
       { x: 1600, y: 300, w: 180, h: 40 },
+      { x: 1900, y: 420, w: 200, h: 40 },
     ];
 
     // ========== التحكم ==========
     const keys = {};
     window.addEventListener('keydown', e => {
       keys[e.code] = true;
-      if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'KeyW', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', e => keys[e.code] = false);
 
+    // لمس للموبايل (أزرار بسيطة)
+    let touchLeft = false, touchRight = false, touchJump = false;
+    
     // ========== الكاميرا ==========
     const camera = { x: 0, y: 0 };
 
-    // ========== التصادم ==========
     function rectCollision(r1, r2) {
       return r1.x < r2.x + r2.w &&
              r1.x + r1.width > r2.x &&
@@ -121,75 +124,65 @@
              r1.y + r1.height > r2.y;
     }
 
-    // ========== تحديث اللعبة ==========
     function update(dt) {
       if (player.dead) {
-        // تشغيل أنيميشن الموت مرة واحدة
         player.frameTimer += dt;
         if (player.frameTimer > animConfig.dead.speed) {
           player.frameTimer = 0;
-          if (player.frame < images.dead.length - 1) {
-            player.frame++;
-          }
+          if (player.frame < images.dead.length - 1) player.frame++;
         }
         return;
       }
 
-      // حركة أفقية
+      // حركة
       player.vx = 0;
-      if (keys['ArrowLeft'] || keys['KeyA']) {
+      if (keys['ArrowLeft'] || keys['KeyA'] || touchLeft) {
         player.vx = -player.speed;
         player.facing = -1;
       }
-      if (keys['ArrowRight'] || keys['KeyD']) {
+      if (keys['ArrowRight'] || keys['KeyD'] || touchRight) {
         player.vx = player.speed;
         player.facing = 1;
       }
 
-      // القفز
-      if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.onGround) {
+      // قفز
+      if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || touchJump) && player.onGround) {
         player.vy = player.jumpPower;
         player.onGround = false;
         player.state = 'jump';
         player.frame = 0;
       }
 
-      // السلايد
+      // سلايد
       if ((keys['ArrowDown'] || keys['KeyS']) && player.onGround && Math.abs(player.vx) > 0) {
         player.state = 'slide';
-        player.slideTimer = 0.4;
+        player.slideTimer = 0.45;
       }
 
       if (player.slideTimer > 0) {
         player.slideTimer -= dt;
-        player.vx *= 1.4; // أسرع شوية أثناء السلايد
+        player.vx *= 1.35;
       }
 
-      // الجاذبية
-      player.vy += 0.6;
-      if (player.vy > 16) player.vy = 16;
+      // جاذبية
+      player.vy += 0.65;
+      if (player.vy > 18) player.vy = 18;
 
-      // تطبيق الحركة
       player.x += player.vx;
       player.y += player.vy;
 
-      // التصادم مع المنصات
+      // تصادم
       player.onGround = false;
       for (const p of platforms) {
         if (rectCollision(player, p)) {
-          // من فوق
-          if (player.vy > 0 && player.y + player.height - player.vy <= p.y + 10) {
+          if (player.vy > 0 && player.y + player.height - player.vy <= p.y + 12) {
             player.y = p.y - player.height;
             player.vy = 0;
             player.onGround = true;
-          }
-          // من تحت
-          else if (player.vy < 0 && player.y - player.vy >= p.y + p.h - 10) {
+          } else if (player.vy < 0 && player.y - player.vy >= p.y + p.h - 12) {
             player.y = p.y + p.h;
             player.vy = 0;
-          }
-          // من الجوانب
-          else if (player.vx > 0) {
+          } else if (player.vx > 0) {
             player.x = p.x - player.width;
           } else if (player.vx < 0) {
             player.x = p.x + p.w;
@@ -201,14 +194,14 @@
       if (player.slideTimer > 0) {
         player.state = 'slide';
       } else if (!player.onGround) {
-        player.state = player.vy < 0 ? 'jump' : 'jump'; // نستخدم jump للاتنين مؤقتاً
-      } else if (Math.abs(player.vx) > 0.5) {
+        player.state = 'jump';
+      } else if (Math.abs(player.vx) > 0.4) {
         player.state = 'run';
       } else {
         player.state = 'idle';
       }
 
-      // تحديث الأنيميشن
+      // أنيميشن
       const conf = animConfig[player.state] || animConfig.idle;
       player.frameTimer += dt;
       if (player.frameTimer > conf.speed) {
@@ -216,27 +209,24 @@
         player.frame = (player.frame + 1) % conf.count;
       }
 
-      // حدود العالم
       if (player.x < 0) player.x = 0;
-      if (player.y > 900) {
-        // موت إذا وقع
+      if (player.y > 1000) {
         player.dead = true;
         player.state = 'dead';
         player.frame = 0;
       }
 
-      // الكاميرا تتبع اللاعب
+      // كاميرا
       camera.x = player.x - canvas.width / 2 + player.width / 2;
       camera.y = player.y - canvas.height / 2 + player.height / 2;
       if (camera.x < 0) camera.x = 0;
       if (camera.y < 0) camera.y = 0;
     }
 
-    // ========== الرسم ==========
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // رسم الخلفية (مكررة)
+      // خلفية
       const bg = images.bg;
       const bgW = bg.width;
       const startX = Math.floor(camera.x / bgW) * bgW;
@@ -244,9 +234,8 @@
         ctx.drawImage(bg, x - camera.x, 0, bgW, canvas.height);
       }
 
-      // رسم المنصات
+      // منصات
       for (const p of platforms) {
-        // نرسم البلاتفورم مكرر أفقياً
         const tileW = images.platform.width;
         for (let tx = 0; tx < p.w; tx += tileW) {
           const drawW = Math.min(tileW, p.w - tx);
@@ -261,7 +250,7 @@
         }
       }
 
-      // رسم اللاعب
+      // لاعب
       const frames = images[player.state] || images.idle;
       const frameImg = frames[Math.min(player.frame, frames.length - 1)];
 
@@ -278,40 +267,39 @@
       }
       ctx.restore();
 
-      // تعليمات بسيطة
-      ctx.fillStyle = 'white';
-      ctx.font = '16px Arial';
-      ctx.fillText('← → أو A D : حركة | Space أو W : قفز | ↓ أو S : سلايد', 20, 30);
+      // تعليمات
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(10, 10, 460, 36);
+      ctx.fillStyle = '#fff';
+      ctx.font = '15px Arial';
+      ctx.fillText('← → / A D : حركة   |   Space / W : قفز   |   ↓ / S : سلايد', 20, 33);
     }
 
-    // ========== حلقة اللعبة ==========
     let lastTime = 0;
     function gameLoop(timestamp) {
       const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
       lastTime = timestamp;
-
       update(dt);
       draw();
       requestAnimationFrame(gameLoop);
     }
 
-    // ========== بدء اللعبة ==========
+    // بدء
     loadAll()
       .then(() => {
-        // ضبط حجم اللاعب حسب أول صورة
-        if (images.idle[0]) {
+        if (images.idle && images.idle[0]) {
           const ratio = images.idle[0].width / images.idle[0].height;
-          player.height = 80;
-          player.width = Math.round(80 * ratio);
+          player.height = 78;
+          player.width = Math.round(78 * ratio);
         }
         requestAnimationFrame(gameLoop);
       })
       .catch(err => {
-        ctx.fillStyle = 'white';
-        ctx.font = '20px Arial';
-        ctx.fillText('خطأ في تحميل الصور:', 50, 100);
-        ctx.fillText(err.message, 50, 140);
-        ctx.fillText('تأكد أن كل الصور في نفس مجلد ملف HTML', 50, 180);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px Arial';
+        ctx.fillText('خطأ في تحميل الصور:', 40, 100);
+        ctx.fillText(err.message, 40, 140);
+        ctx.fillText('تأكد أن كل الصور موجودة في نفس المكان', 40, 180);
       });
   </script>
 </body>
