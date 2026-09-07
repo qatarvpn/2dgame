@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>2D Platformer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    canvas {
+      display: block;
+      background: #000;
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    // حجم الشاشة
+    function resize() {
+      canvas.width = Math.min(window.innerWidth, 1280);
+      canvas.height = Math.min(window.innerHeight, 720);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // ========== تحميل الصور ==========
+    const images = {};
+    const animConfig = {
+      idle:  { count: 10, speed: 0.12 },
+      run:   { count: 8,  speed: 0.18 },
+      jump:  { count: 12, speed: 0.15 },
+      dead:  { count: 10, speed: 0.12 },
+      slide: { count: 5,  speed: 0.15 }
+    };
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('فشل تحميل: ' + src));
+        img.src = src;
+      });
+    }
+
+    async function loadAll() {
+      // خلفية وبلاتفورم
+      images.bg = await loadImage('BG.png');
+      images.platform = await loadImage('pl.png');
+
+      // فريمات الشخصية
+      for (const [name, conf] of Object.entries(animConfig)) {
+        images[name] = [];
+        for (let i = 1; i <= conf.count; i++) {
+          const img = await loadImage(`\( {name.charAt(0).toUpperCase() + name.slice(1)} ( \){i}).png`);
+          images[name].push(img);
+        }
+      }
+    }
+
+    // ========== اللاعب ==========
+    const player = {
+      x: 100,
+      y: 100,
+      vx: 0,
+      vy: 0,
+      width: 60,
+      height: 80,
+      speed: 5,
+      jumpPower: -14,
+      onGround: false,
+      state: 'idle',      // idle | run | jump | fall | slide | dead
+      frame: 0,
+      frameTimer: 0,
+      facing: 1,         // 1 يمين | -1 يسار
+      dead: false,
+      slideTimer: 0
+    };
+
+    // ========== المنصات ==========
+    const platforms = [
+      // الأرض الرئيسية
+      { x: 0, y: 620, w: 2000, h: 100 },
+      // منصات عائمة
+      { x: 300, y: 480, w: 180, h: 40 },
+      { x: 550, y: 380, w: 160, h: 40 },
+      { x: 800, y: 480, w: 200, h: 40 },
+      { x: 1100, y: 350, w: 150, h: 40 },
+      { x: 1350, y: 480, w: 220, h: 40 },
+      { x: 1600, y: 300, w: 180, h: 40 },
+    ];
+
+    // ========== التحكم ==========
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      keys[e.code] = true;
+      if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) e.preventDefault();
+    });
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    // ========== الكاميرا ==========
+    const camera = { x: 0, y: 0 };
+
+    // ========== التصادم ==========
+    function rectCollision(r1, r2) {
+      return r1.x < r2.x + r2.w &&
+             r1.x + r1.width > r2.x &&
+             r1.y < r2.y + r2.h &&
+             r1.y + r1.height > r2.y;
+    }
+
+    // ========== تحديث اللعبة ==========
+    function update(dt) {
+      if (player.dead) {
+        // تشغيل أنيميشن الموت مرة واحدة
+        player.frameTimer += dt;
+        if (player.frameTimer > animConfig.dead.speed) {
+          player.frameTimer = 0;
+          if (player.frame < images.dead.length - 1) {
+            player.frame++;
+          }
+        }
+        return;
+      }
+
+      // حركة أفقية
+      player.vx = 0;
+      if (keys['ArrowLeft'] || keys['KeyA']) {
+        player.vx = -player.speed;
+        player.facing = -1;
+      }
+      if (keys['ArrowRight'] || keys['KeyD']) {
+        player.vx = player.speed;
+        player.facing = 1;
+      }
+
+      // القفز
+      if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.onGround) {
+        player.vy = player.jumpPower;
+        player.onGround = false;
+        player.state = 'jump';
+        player.frame = 0;
+      }
+
+      // السلايد
+      if ((keys['ArrowDown'] || keys['KeyS']) && player.onGround && Math.abs(player.vx) > 0) {
+        player.state = 'slide';
+        player.slideTimer = 0.4;
+      }
+
+      if (player.slideTimer > 0) {
+        player.slideTimer -= dt;
+        player.vx *= 1.4; // أسرع شوية أثناء السلايد
+      }
+
+      // الجاذبية
+      player.vy += 0.6;
+      if (player.vy > 16) player.vy = 16;
+
+      // تطبيق الحركة
+      player.x += player.vx;
+      player.y += player.vy;
+
+      // التصادم مع المنصات
+      player.onGround = false;
+      for (const p of platforms) {
+        if (rectCollision(player, p)) {
+          // من فوق
+          if (player.vy > 0 && player.y + player.height - player.vy <= p.y + 10) {
+            player.y = p.y - player.height;
+            player.vy = 0;
+            player.onGround = true;
+          }
+          // من تحت
+          else if (player.vy < 0 && player.y - player.vy >= p.y + p.h - 10) {
+            player.y = p.y + p.h;
+            player.vy = 0;
+          }
+          // من الجوانب
+          else if (player.vx > 0) {
+            player.x = p.x - player.width;
+          } else if (player.vx < 0) {
+            player.x = p.x + p.w;
+          }
+        }
+      }
+
+      // تحديد الحالة
+      if (player.slideTimer > 0) {
+        player.state = 'slide';
+      } else if (!player.onGround) {
+        player.state = player.vy < 0 ? 'jump' : 'jump'; // نستخدم jump للاتنين مؤقتاً
+      } else if (Math.abs(player.vx) > 0.5) {
+        player.state = 'run';
+      } else {
+        player.state = 'idle';
+      }
+
+      // تحديث الأنيميشن
+      const conf = animConfig[player.state] || animConfig.idle;
+      player.frameTimer += dt;
+      if (player.frameTimer > conf.speed) {
+        player.frameTimer = 0;
+        player.frame = (player.frame + 1) % conf.count;
+      }
+
+      // حدود العالم
+      if (player.x < 0) player.x = 0;
+      if (player.y > 900) {
+        // موت إذا وقع
+        player.dead = true;
+        player.state = 'dead';
+        player.frame = 0;
+      }
+
+      // الكاميرا تتبع اللاعب
+      camera.x = player.x - canvas.width / 2 + player.width / 2;
+      camera.y = player.y - canvas.height / 2 + player.height / 2;
+      if (camera.x < 0) camera.x = 0;
+      if (camera.y < 0) camera.y = 0;
+    }
+
+    // ========== الرسم ==========
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // رسم الخلفية (مكررة)
+      const bg = images.bg;
+      const bgW = bg.width;
+      const startX = Math.floor(camera.x / bgW) * bgW;
+      for (let x = startX - bgW; x < camera.x + canvas.width + bgW; x += bgW) {
+        ctx.drawImage(bg, x - camera.x, 0, bgW, canvas.height);
+      }
+
+      // رسم المنصات
+      for (const p of platforms) {
+        // نرسم البلاتفورم مكرر أفقياً
+        const tileW = images.platform.width;
+        for (let tx = 0; tx < p.w; tx += tileW) {
+          const drawW = Math.min(tileW, p.w - tx);
+          ctx.drawImage(
+            images.platform,
+            0, 0, drawW, images.platform.height,
+            p.x + tx - camera.x,
+            p.y - camera.y,
+            drawW,
+            p.h
+          );
+        }
+      }
+
+      // رسم اللاعب
+      const frames = images[player.state] || images.idle;
+      const frameImg = frames[Math.min(player.frame, frames.length - 1)];
+
+      ctx.save();
+      const drawX = player.x - camera.x;
+      const drawY = player.y - camera.y;
+
+      if (player.facing === -1) {
+        ctx.translate(drawX + player.width, drawY);
+        ctx.scale(-1, 1);
+        ctx.drawImage(frameImg, 0, 0, player.width, player.height);
+      } else {
+        ctx.drawImage(frameImg, drawX, drawY, player.width, player.height);
+      }
+      ctx.restore();
+
+      // تعليمات بسيطة
+      ctx.fillStyle = 'white';
+      ctx.font = '16px Arial';
+      ctx.fillText('← → أو A D : حركة | Space أو W : قفز | ↓ أو S : سلايد', 20, 30);
+    }
+
+    // ========== حلقة اللعبة ==========
+    let lastTime = 0;
+    function gameLoop(timestamp) {
+      const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+      lastTime = timestamp;
+
+      update(dt);
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ========== بدء اللعبة ==========
+    loadAll()
+      .then(() => {
+        // ضبط حجم اللاعب حسب أول صورة
+        if (images.idle[0]) {
+          const ratio = images.idle[0].width / images.idle[0].height;
+          player.height = 80;
+          player.width = Math.round(80 * ratio);
+        }
+        requestAnimationFrame(gameLoop);
+      })
+      .catch(err => {
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.fillText('خطأ في تحميل الصور:', 50, 100);
+        ctx.fillText(err.message, 50, 140);
+        ctx.fillText('تأكد أن كل الصور في نفس مجلد ملف HTML', 50, 180);
+      });
+  </script>
+</body>
+</html>
